@@ -1,0 +1,100 @@
+---
+title: "Game of Two Halves"
+author: "Rob Carver"
+date: "November 2015"
+output: word_document
+---
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+This is an example of using R Markdown to share R code AND results
+
+```{r}
+setwd("~/Dropbox/MyRWorkDSC201/Game2Halves")
+
+
+#Read file: Betting.csv contains case data
+mydata<-read.csv("Betting.csv",header=T)
+
+# Summarize the outcomes of all observed matches
+table(mydata$Match_O)
+```
+This is just a tally of actual observed Draws, Wins and Losses in the data
+
+Now we go on to create estimate the *Multinomial Logit Model* -- fancy term 
+for a logistic regression in which the Y variable has more than 2 categories.
+In this case, we know that the Match Outcome can be "Draw", "Loss", or "Win"
+
+We need a new package to run the procedure; the package is _nnet_. Once it is 
+installed and invoked, we can give the relevant command. In the following code
+we re-order the default sequence of the Y variable, then run the logistic 
+regression.
+
+Following that, we display the coefficient estimates, compute p-values (significance levels) and exponentiate the coefficients to match the "Exp(B)" column in Exhibit 7 of the case
+
+```{r}
+
+library(nnet)
+
+# First, create target variable 'result' based on factor 
+#     Match Outcome where "Loss" is the reference level
+#     of the factor
+
+mydata$result<-relevel(mydata$Match_O, ref="Loss")
+# show that "result" just re-orders "Match_O"
+table(mydata$Match_O, mydata$result)
+# Synatx of multinomial command includes target ~ x1 + x2 +
+#     etc., data = dataframe
+test<-multinom(result~HTGD+RED.H+RED.A+POINTS_H+POINTS_A+
+               TOTAL_H_P+TOTAL_A_P+FGS.0+FGS.1, 
+               data=mydata)
+summary(test)  # display estimation results
+
+#2-tailed z test
+z <- summary(test)$coefficients/summary(test)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+p
+
+#Exponentiate
+exp(coef(test))
+
+```
+
+One standard way to assess a model is to create the *Confusion Matrix* and calculate the "misclassification rate" -- how often did our model assign a case to the wrong class?
+
+```{r}
+#Misclassification error -- Confustion matrix and misclassification rate
+tab1<-table(predict(test), mydata$Match_O)
+print(tab1)
+1-sum(diag(tab1))/sum(tab1)
+```
+
+So, this model does not do a spectacular job! It is wrong more than half of the time. 
+Let's move on to a "Decision Tree" approach
+
+```{r}
+# Decision tree with party
+# First invoke package party
+# Party performs recursive partitioning, an alternative to regression models
+
+library(party)
+
+# Create a decision tree using same variables as in Exhibit 9 of case. 1st create an object (mymodel) containing the target and explanatory variables
+
+mymodel <-result ~ HTGD + TOTAL_H_P + TOTAL_A_P + FGS.0 + FGS.1 
+
+partytree <- ctree(mymodel, data=mydata, controls=ctree_control(mincriterion=0.90,
+      minsplit=250, maxdepth=3)) # specify some criteria for splitting
+# Note that this tree does not perfectly match the one in the case
+
+print(partytree)  #  print the decision rules
+plot(partytree)  # display graphically
+
+
+#Misclassification error -- Confustion matrix and misclassification rate
+
+tab<-table(predict(partytree), mydata$result) 
+print(tab)
+1-sum(diag(tab))/sum(tab)
+
+```
